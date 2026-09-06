@@ -1,0 +1,51 @@
+name: CI - build, testes e cobertura
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build + testes + cobertura minima de 70%
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build, testes e verificacao de cobertura
+        run: mvn -B clean verify
+
+      - name: Resumo da cobertura
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET, os, sys
+          caminho = 'target/site/jacoco/jacoco.xml'
+          if not os.path.exists(caminho):
+              print('Relatorio JaCoCo nao encontrado.'); sys.exit(0)
+          raiz = ET.parse(caminho).getroot()
+          print('| Metrica | Coberto | Total | % |')
+          print('|---|---|---|---|')
+          for c in raiz.findall('counter'):
+              cob = int(c.get('covered')); perd = int(c.get('missed')); tot = cob + perd
+              pct = (100.0 * cob / tot) if tot else 0.0
+              print(f"| {c.get('type')} | {cob} | {tot} | {pct:.1f}% |")
+          PY
+
+      - name: Publicar relatorio JaCoCo
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorio-jacoco
+          path: target/site/jacoco/

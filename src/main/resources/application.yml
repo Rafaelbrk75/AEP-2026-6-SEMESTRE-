@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: imunizamais
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/imunizamais}
+      auto-index-creation: true
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: ${SERVER_PORT:8080}
+
+app:
+  seed:
+    enabled: ${APP_SEED_ENABLED:true}
+
+logging:
+  level:
+    br.com.unicesumar.aep.imunizamais: INFO
