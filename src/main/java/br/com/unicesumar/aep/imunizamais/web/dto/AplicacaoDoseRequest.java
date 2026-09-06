@@ -9,5 +9,5 @@ public record AplicacaoDoseRequest(
         String campanhaId,
         @NotNull(message = "dataAplicacao e obrigatoria") LocalDate dataAplicacao,
         @NotBlank(message = "lote e obrigatorio") String lote,
-        @NotBlank(message = "unidadeSaude e obrigatoria") String unidadeSaude) {
+        @NotBlank(message = "postoSaudeId e obrigatorio") String postoSaudeId) {
 }

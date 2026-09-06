@@ -2,12 +2,15 @@ package br.com.unicesumar.aep.imunizamais.config;
 
 import br.com.unicesumar.aep.imunizamais.domain.Campanha;
 import br.com.unicesumar.aep.imunizamais.domain.Contato;
+import br.com.unicesumar.aep.imunizamais.domain.DoseAplicada;
 import br.com.unicesumar.aep.imunizamais.domain.Endereco;
 import br.com.unicesumar.aep.imunizamais.domain.Paciente;
+import br.com.unicesumar.aep.imunizamais.domain.PostoSaude;
 import br.com.unicesumar.aep.imunizamais.domain.PublicoAlvo;
 import br.com.unicesumar.aep.imunizamais.domain.Vacina;
 import br.com.unicesumar.aep.imunizamais.repository.CampanhaRepository;
 import br.com.unicesumar.aep.imunizamais.repository.PacienteRepository;
+import br.com.unicesumar.aep.imunizamais.repository.PostoSaudeRepository;
 import br.com.unicesumar.aep.imunizamais.repository.VacinaRepository;
 import java.time.LocalDate;
 import java.util.List;
@@ -30,13 +33,16 @@ public class DataSeeder implements CommandLineRunner {
     private final VacinaRepository vacinaRepository;
     private final PacienteRepository pacienteRepository;
     private final CampanhaRepository campanhaRepository;
+    private final PostoSaudeRepository postoSaudeRepository;
 
     public DataSeeder(VacinaRepository vacinaRepository,
                       PacienteRepository pacienteRepository,
-                      CampanhaRepository campanhaRepository) {
+                      CampanhaRepository campanhaRepository,
+                      PostoSaudeRepository postoSaudeRepository) {
         this.vacinaRepository = vacinaRepository;
         this.pacienteRepository = pacienteRepository;
         this.campanhaRepository = campanhaRepository;
+        this.postoSaudeRepository = postoSaudeRepository;
     }
 
     @Override
@@ -53,6 +59,13 @@ public class DataSeeder implements CommandLineRunner {
         Vacina tripliceViral = vacinaRepository.save(new Vacina(null, "Triplice Viral", "Fiocruz",
                 2, 90, 12, List.of("Sarampo", "Caxumba", "Rubeola")));
 
+        PostoSaude ubsCentral = postoSaudeRepository.save(new PostoSaude(null, "UBS Central",
+                "44898887777", 150,
+                new Endereco("Av. Brasil", "500", "Centro", "Maringa", "PR", "87013-000")));
+        postoSaudeRepository.save(new PostoSaude(null, "UBS Zona 7",
+                "44898886666", 80,
+                new Endereco("Rua Pioneiro Jose Ferreira", "300", "Zona 7", "Maringa", "PR", "87020-100")));
+
         LocalDate hoje = LocalDate.now();
         campanhaRepository.save(new Campanha(null, "Campanha de Influenza 2026",
                 influenza.getId(),
@@ -64,18 +77,24 @@ public class DataSeeder implements CommandLineRunner {
                 new PublicoAlvo(12, 60, "Criancas de 1 a 5 anos"),
                 hoje.minusDays(10), hoje.plusDays(40), 200));
 
-        pacienteRepository.save(new Paciente(null, "12345678901", "Maria Souza",
+        Paciente maria = new Paciente(null, "12345678901", "Maria Souza",
                 LocalDate.of(1990, 5, 12),
                 new Contato("44999990001", "maria@exemplo.com"),
-                new Endereco("Av. Guedner", "1610", "Jardim Aclimacao", "Maringa", "PR", "87050-900")));
+                new Endereco("Av. Guedner", "1610", "Jardim Aclimacao", "Maringa", "PR", "87050-900"));
+        // Dose aplicada ha 40 dias: com intervalo minimo de 30 dias entre doses de Hepatite B,
+        // a 2a dose ja fica ATRASADA - exemplo pronto para testar GET /api/pacientes/alertas.
+        maria.registrarDose(new DoseAplicada(hepatiteB.getId(), hepatiteB.getNome(), 1,
+                hoje.minusDays(40), "LOTE-2026-01", ubsCentral.getId(), ubsCentral.getNome(), null));
+        pacienteRepository.save(maria);
 
         pacienteRepository.save(new Paciente(null, "98765432100", "Joao Pedro Lima",
                 hoje.minusMonths(18),
                 new Contato("44999990002", "responsavel.joao@exemplo.com"),
                 new Endereco("Rua Pioneiro Jose Ferreira", "245", "Zona 7", "Maringa", "PR", "87020-100")));
 
-        log.info("Seed concluido: {} vacinas, {} campanhas, {} pacientes.",
-                vacinaRepository.count(), campanhaRepository.count(), pacienteRepository.count());
+        log.info("Seed concluido: {} vacinas, {} postos de saude, {} campanhas, {} pacientes.",
+                vacinaRepository.count(), postoSaudeRepository.count(), campanhaRepository.count(),
+                pacienteRepository.count());
         log.info("Hepatite B id={} (usado nos exemplos do README)", hepatiteB.getId());
     }
 }

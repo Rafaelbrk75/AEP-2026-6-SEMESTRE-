@@ -41,17 +41,25 @@ de forma direta e objetiva:
 - Cadastra **pacientes** com contato e endereço aninhados e um **histórico de doses**
   como lista de subdocumentos.
 - Cadastra **campanhas** com público-alvo aninhado, período e meta de doses.
-- **Registra a aplicação de uma dose**, atravessando 5 regras de negócio antes de
+- Cadastra **postos de saúde** (nome, telefone, capacidade diária, endereço) — é onde
+  cada dose registrada é efetivamente aplicada.
+- **Registra a aplicação de uma dose**, atravessando 6 regras de negócio antes de
   persistir; atualiza o histórico do paciente e a cobertura da campanha na mesma operação.
 - **Calcula a situação vacinal** do paciente para todo o catálogo de vacinas
   (`COMPLETO`, `EM_DIA`, `PENDENTE`, `ATRASADA`, `NAO_ELEGIVEL`), com a data prevista
   da próxima dose.
+- **Lista alertas de vacinação** (`/api/pacientes/alertas`): varre a base e aponta
+  pacientes com dose pendente, atrasada, ou com a próxima dose vencendo nos próximos
+  7 dias — busca ativa pronta para um posto de saúde consultar antes que a
+  vacinação atrase.
 - Expõe o **indicador de cobertura** de cada campanha.
 
 ### Regras de negócio implementadas
 
 Cada regra é uma implementação da interface `RegraAplicacaoDose`, injetada como lista
-pelo Spring e aplicada por polimorfismo — sem cadeia de `if` no serviço.
+pelo Spring e aplicada por polimorfismo — sem cadeia de `if` no serviço. A validação
+do posto de saúde (existência e se está ativo) é feita diretamente no serviço, no
+mesmo espírito das demais checagens de existência.
 
 | Código | Regra |
 |---|---|
@@ -60,6 +68,7 @@ pelo Spring e aplicada por polimorfismo — sem cadeia de `if` no serviço.
 | `ESQUEMA_COMPLETO` | Não se aplica dose além do nº recomendado |
 | `INTERVALO_ENTRE_DOSES` | Intervalo mínimo em dias entre a última dose e a próxima |
 | `CAMPANHA_VIGENTE` | Campanha ativa, no período e com o paciente no público-alvo |
+| `POSTO_INATIVO` | Posto de saúde informado existe, mas está desativado |
 
 ## 4. Tecnologias
 
@@ -75,7 +84,7 @@ pelo Spring e aplicada por polimorfismo — sem cadeia de `if` no serviço.
 
 ## 5. Modelo de dados NoSQL
 
-Três coleções relacionadas por identificador, com objetos complexos aninhados —
+Quatro coleções relacionadas por identificador, com objetos complexos aninhados —
 atendendo ao requisito de evolução do 2º semestre da AEP (múltiplas coleções,
 relacionamento entre coleções e ao menos uma coleção com documentos aninhados/listas
 de subdocumentos).
@@ -85,6 +94,8 @@ vacinas ──┬──< campanhas.vacinaId
           └──< pacientes.historicoDoses[].vacinaId
 
 campanhas ───< pacientes.historicoDoses[].campanhaId
+
+postos_saude ───< pacientes.historicoDoses[].postoSaudeId
 ```
 
 Documento de `pacientes` (objetos aninhados + lista de subdocumentos):
@@ -107,7 +118,8 @@ Documento de `pacientes` (objetos aninhados + lista de subdocumentos):
       "numeroDose": 1,
       "dataAplicacao": "2026-07-01",
       "lote": "LOTE-A",
-      "unidadeSaude": "UBS Central",
+      "postoSaudeId": "66f0c1e2a1b2c3d4e5f60030",
+      "nomePostoSaude": "UBS Central",
       "campanhaId": null
     }
   ]
@@ -145,8 +157,9 @@ mvn spring-boot:run
 ```
 
 A API sobe em `http://localhost:8080`. Na primeira execução, uma carga inicial
-(`DataSeeder`) cria 3 vacinas, 2 campanhas e 2 pacientes. Para desativar:
-`export APP_SEED_ENABLED=false`.
+(`DataSeeder`) cria 3 vacinas, 2 postos de saúde, 2 campanhas e 2 pacientes (um deles
+já com uma dose atrasada, pronta para aparecer em `/api/pacientes/alertas`). Para
+desativar: `export APP_SEED_ENABLED=false`.
 
 ### Passo 3 — exercitar o fluxo principal
 
@@ -154,22 +167,28 @@ A API sobe em `http://localhost:8080`. Na primeira execução, uma carga inicial
 # 1. Listar as vacinas criadas pelo seed (guarde o id da Hepatite B)
 curl -s http://localhost:8080/api/vacinas | jq
 
-# 2. Consultar a situação vacinal da paciente Maria Souza
+# 2. Listar os postos de saude criados pelo seed (guarde o id da UBS Central)
+curl -s http://localhost:8080/api/postos-saude | jq
+
+# 3. Consultar a situação vacinal da paciente Maria Souza
 curl -s http://localhost:8080/api/pacientes/12345678901/situacao | jq
 
-# 3. Registrar a 1ª dose de Hepatite B (troque <VACINA_ID>)
+# 4. Registrar a 1ª dose de Hepatite B (troque <VACINA_ID> e <POSTO_ID>)
 curl -s -X POST http://localhost:8080/api/pacientes/12345678901/doses \
   -H 'Content-Type: application/json' \
-  -d '{"vacinaId":"<VACINA_ID>","dataAplicacao":"2026-07-01","lote":"LOTE-A","unidadeSaude":"UBS Central"}' | jq
+  -d '{"vacinaId":"<VACINA_ID>","dataAplicacao":"2026-07-01","lote":"LOTE-A","postoSaudeId":"<POSTO_ID>"}' | jq
 
-# 4. Tentar aplicar a 2ª dose antes do intervalo mínimo -> 422 com o código da regra
+# 5. Tentar aplicar a 2ª dose antes do intervalo mínimo -> 422 com o código da regra
 curl -s -X POST http://localhost:8080/api/pacientes/12345678901/doses \
   -H 'Content-Type: application/json' \
-  -d '{"vacinaId":"<VACINA_ID>","dataAplicacao":"2026-07-05","lote":"LOTE-B","unidadeSaude":"UBS Central"}' | jq
+  -d '{"vacinaId":"<VACINA_ID>","dataAplicacao":"2026-07-05","lote":"LOTE-B","postoSaudeId":"<POSTO_ID>"}' | jq
 
-# 5. Cobertura de uma campanha (troque <CAMPANHA_ID>)
+# 6. Cobertura de uma campanha (troque <CAMPANHA_ID>)
 curl -s http://localhost:8080/api/campanhas | jq
 curl -s http://localhost:8080/api/campanhas/<CAMPANHA_ID>/cobertura | jq
+
+# 7. Ver quem esta com vacinacao pendente, atrasada ou proxima do vencimento
+curl -s http://localhost:8080/api/pacientes/alertas | jq
 ```
 
 Contrato completo dos endpoints em [`docs/API.md`](docs/API.md).
@@ -243,7 +262,13 @@ um build verde já é a evidência reproduzível da cobertura mínima exigida pe
 
 - Consultas agregadas de cobertura por bairro/faixa etária (aggregation pipeline).
 - Índices compostos e análise de plano de execução no MongoDB.
-- Busca ativa: listagem de pacientes com doses atrasadas por região.
+- Busca ativa por região: o endpoint `GET /api/pacientes/alertas` já lista pacientes
+  com dose pendente/atrasada/próxima do vencimento; falta filtrar por
+  bairro/cidade e por posto de saúde responsável.
+- Disparo real de notificação (e-mail/SMS) a partir dos alertas — hoje o endpoint
+  só expõe a lista, sem enviar nada.
+- Vincular campanhas a postos de saúde específicos (hoje o posto só é registrado
+  por dose aplicada, não por campanha).
 - Autenticação e perfis de acesso (profissional × coordenação).
 
 ## 11. Equipe
@@ -253,5 +278,6 @@ um build verde já é a evidência reproduzível da cobertura mínima exigida pe
 | _preencher_ | _preencher_ |
 | _preencher_ | _preencher_ |
 | _preencher_ | _preencher_ |
-#   A E P - 2 0 2 6 - 6 - S E M E S T R E  
+#   A E P - 2 0 2 6 - 6 - S E M E S T R E 
+ 
  

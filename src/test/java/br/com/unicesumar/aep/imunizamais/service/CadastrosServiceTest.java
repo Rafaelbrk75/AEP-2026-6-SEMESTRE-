@@ -12,11 +12,13 @@ import static org.mockito.Mockito.when;
 import br.com.unicesumar.aep.imunizamais.TestFixtures;
 import br.com.unicesumar.aep.imunizamais.domain.Campanha;
 import br.com.unicesumar.aep.imunizamais.domain.Paciente;
+import br.com.unicesumar.aep.imunizamais.domain.PostoSaude;
 import br.com.unicesumar.aep.imunizamais.domain.Vacina;
 import br.com.unicesumar.aep.imunizamais.exception.RecursoNaoEncontradoException;
 import br.com.unicesumar.aep.imunizamais.exception.RegraNegocioException;
 import br.com.unicesumar.aep.imunizamais.repository.CampanhaRepository;
 import br.com.unicesumar.aep.imunizamais.repository.PacienteRepository;
+import br.com.unicesumar.aep.imunizamais.repository.PostoSaudeRepository;
 import br.com.unicesumar.aep.imunizamais.repository.VacinaRepository;
 import br.com.unicesumar.aep.imunizamais.web.dto.CoberturaCampanhaResponse;
 import br.com.unicesumar.aep.imunizamais.web.dto.ContatoDTO;
@@ -24,6 +26,7 @@ import br.com.unicesumar.aep.imunizamais.web.dto.EnderecoDTO;
 import br.com.unicesumar.aep.imunizamais.web.dto.NovaCampanhaRequest;
 import br.com.unicesumar.aep.imunizamais.web.dto.NovaVacinaRequest;
 import br.com.unicesumar.aep.imunizamais.web.dto.NovoPacienteRequest;
+import br.com.unicesumar.aep.imunizamais.web.dto.NovoPostoSaudeRequest;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -45,6 +48,8 @@ class CadastrosServiceTest {
     private VacinaRepository vacinaRepository;
     @Mock
     private CampanhaRepository campanhaRepository;
+    @Mock
+    private PostoSaudeRepository postoSaudeRepository;
 
     @Nested
     @DisplayName("PacienteService")
@@ -257,6 +262,64 @@ class CadastrosServiceTest {
         @DisplayName("busca campanha inexistente lanca excecao")
         void buscaInexistente() {
             when(campanhaRepository.findById("x")).thenReturn(Optional.empty());
+            assertThrows(RecursoNaoEncontradoException.class, () -> servico.buscarPorId("x"));
+        }
+    }
+
+    @Nested
+    @DisplayName("PostoSaudeService")
+    class PostosSaude {
+
+        private PostoSaudeService servico;
+
+        @BeforeEach
+        void setUp() {
+            servico = new PostoSaudeService(postoSaudeRepository);
+        }
+
+        private NovoPostoSaudeRequest requisicao() {
+            return new NovoPostoSaudeRequest("UBS Central", "44898887777", 150,
+                    new EnderecoDTO("Av. Brasil", "500", "Centro", "Maringa", "PR", "87013-000"));
+        }
+
+        @Test
+        @DisplayName("cadastra posto de saude novo")
+        void cadastra() {
+            when(postoSaudeRepository.existsByNomeIgnoreCase("UBS Central")).thenReturn(false);
+            when(postoSaudeRepository.save(any(PostoSaude.class))).thenAnswer(i -> i.getArgument(0));
+
+            PostoSaude salvo = servico.cadastrar(requisicao());
+
+            assertEquals("UBS Central", salvo.getNome());
+            assertEquals("Maringa", salvo.getEndereco().getCidade());
+            assertTrue(salvo.isAtivo());
+        }
+
+        @Test
+        @DisplayName("recusa nome repetido")
+        void nomeDuplicado() {
+            when(postoSaudeRepository.existsByNomeIgnoreCase("UBS Central")).thenReturn(true);
+            RegraNegocioException ex = assertThrows(RegraNegocioException.class,
+                    () -> servico.cadastrar(requisicao()));
+            assertEquals("POSTO_DUPLICADO", ex.getRegra());
+        }
+
+        @Test
+        @DisplayName("lista, busca e desativa")
+        void listaBuscaEDesativa() {
+            PostoSaude posto = TestFixtures.postoSaude();
+            when(postoSaudeRepository.findAll()).thenReturn(List.of(posto));
+            when(postoSaudeRepository.findByAtivoTrue()).thenReturn(List.of(posto));
+            assertEquals(1, servico.listar().size());
+            assertEquals(1, servico.listarAtivos().size());
+
+            when(postoSaudeRepository.findById("posto-1")).thenReturn(Optional.of(posto));
+            assertEquals("UBS Central", servico.buscarPorId("posto-1").getNome());
+
+            when(postoSaudeRepository.save(any(PostoSaude.class))).thenAnswer(i -> i.getArgument(0));
+            assertFalse(servico.desativar("posto-1").isAtivo());
+
+            when(postoSaudeRepository.findById("x")).thenReturn(Optional.empty());
             assertThrows(RecursoNaoEncontradoException.class, () -> servico.buscarPorId("x"));
         }
     }

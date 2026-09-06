@@ -10,7 +10,7 @@ Content-Type: `application/json`
 | `200 OK` | Consulta bem-sucedida |
 | `201 Created` | Recurso criado / dose registrada |
 | `400 Bad Request` | Payload inválido (Bean Validation) — campo `detalhes` lista os erros |
-| `404 Not Found` | Paciente, vacina ou campanha inexistente |
+| `404 Not Found` | Paciente, vacina, campanha ou posto de saúde inexistente |
 | `422 Unprocessable Entity` | Regra de negócio violada — campo `erro` traz o código da regra |
 
 Formato de erro:
@@ -99,12 +99,14 @@ Retorna o paciente com o histórico de doses completo.
   "campanhaId": null,
   "dataAplicacao": "2026-07-01",
   "lote": "LOTE-A",
-  "unidadeSaude": "UBS Central"
+  "postoSaudeId": "66f0c1e2a1b2c3d4e5f60030"
 }
 ```
 
-`campanhaId` é opcional (dose de rotina fora de campanha). O **número da dose não é
-enviado**: é derivado do histórico do paciente, o que impede furo de sequência.
+`campanhaId` é opcional (dose de rotina fora de campanha). `postoSaudeId` referencia
+um documento existente em `postos_saude` (veja a seção *Postos de Saúde* abaixo) — `404`
+se o id não existir. O **número da dose não é enviado**: é derivado do histórico do
+paciente, o que impede furo de sequência.
 
 Retorna `201` com o paciente atualizado.
 
@@ -117,6 +119,7 @@ Regras aplicadas antes de persistir — cada uma responde `422` com o próprio c
 | `ESQUEMA_COMPLETO` | Todas as doses recomendadas já foram aplicadas |
 | `INTERVALO_ENTRE_DOSES` | Intervalo mínimo desde a última dose não cumprido |
 | `CAMPANHA_VIGENTE` | Campanha de outra vacina, encerrada, fora do período ou paciente fora do público-alvo |
+| `POSTO_INATIVO` | O posto de saúde informado existe mas está desativado |
 
 Efeito colateral: se `campanhaId` for informado, o contador `dosesAplicadas` da
 campanha é incrementado.
@@ -153,6 +156,65 @@ campanha é incrementado.
 | `ATRASADA` | A data prevista da próxima dose já passou |
 | `PENDENTE` | Elegível, nenhuma dose aplicada |
 | `NAO_ELEGIVEL` | Ainda não atingiu a idade mínima (`dataPrevistaProximaDose` = data em que ficará elegível) |
+
+### `GET /api/pacientes/alertas` · `GET /api/pacientes/alertas?situacao=ATRASADA`
+
+Varre **todos** os pacientes e devolve quem está com dose `PENDENTE`, `ATRASADA`, ou
+cuja próxima dose vence nos próximos 7 dias (`proximaDoseEmBreve: true`) — um aviso
+preventivo para um posto de saúde agir antes que a vacinação atrase de fato. O
+parâmetro `situacao` é opcional e filtra pelo enum de `SituacaoVacinal`.
+
+```json
+[
+  {
+    "cpf": "12345678901",
+    "nomePaciente": "Maria Souza",
+    "telefone": "44999990001",
+    "email": "maria@exemplo.com",
+    "vacinaId": "66f0c1e2a1b2c3d4e5f60010",
+    "nomeVacina": "Hepatite B",
+    "situacao": "ATRASADA",
+    "proximaDose": 2,
+    "dataPrevistaProximaDose": "2026-08-05",
+    "proximaDoseEmBreve": false
+  }
+]
+```
+
+---
+
+## Postos de Saúde
+
+### `POST /api/postos-saude`
+
+```json
+{
+  "nome": "UBS Central",
+  "telefone": "44898887777",
+  "capacidadeDiariaDoses": 150,
+  "endereco": {
+    "logradouro": "Av. Brasil",
+    "numero": "500",
+    "bairro": "Centro",
+    "cidade": "Maringa",
+    "uf": "PR",
+    "cep": "87013-000"
+  }
+}
+```
+
+`201` com o documento criado. `422 POSTO_DUPLICADO` se o nome já existir.
+
+### `GET /api/postos-saude` · `GET /api/postos-saude?apenasAtivos=true`
+
+### `GET /api/postos-saude/{id}`
+
+`404` se não existir.
+
+### `PATCH /api/postos-saude/{id}/desativacao`
+
+Marca o posto como inativo. A partir daí, `POST /api/pacientes/{cpf}/doses` que
+referenciar esse `postoSaudeId` responde `422 POSTO_INATIVO`.
 
 ---
 

@@ -5,6 +5,7 @@ import br.com.unicesumar.aep.imunizamais.domain.Contato;
 import br.com.unicesumar.aep.imunizamais.domain.DoseAplicada;
 import br.com.unicesumar.aep.imunizamais.domain.Endereco;
 import br.com.unicesumar.aep.imunizamais.domain.Paciente;
+import br.com.unicesumar.aep.imunizamais.domain.PostoSaude;
 import br.com.unicesumar.aep.imunizamais.domain.PublicoAlvo;
 import br.com.unicesumar.aep.imunizamais.domain.Vacina;
 import java.time.Clock;
@@ -58,7 +59,13 @@ public final class TestFixtures {
                 HOJE.minusDays(30), HOJE.plusDays(60), 500);
     }
 
+    public static PostoSaude postoSaude() {
+        return new PostoSaude("posto-1", "UBS Central", "44898887777", 150,
+                new Endereco("Av. Brasil", "500", "Centro", "Maringa", "PR", "87013-000"));
+    }
+
     public static DoseAplicada dose(String vacinaId, int numero, LocalDate data) {
-        return new DoseAplicada(vacinaId, "Vacina " + vacinaId, numero, data, "LOTE-" + numero, "UBS Central", null);
+        return new DoseAplicada(vacinaId, "Vacina " + vacinaId, numero, data, "LOTE-" + numero,
+                "posto-1", "UBS Central", null);
     }
 }

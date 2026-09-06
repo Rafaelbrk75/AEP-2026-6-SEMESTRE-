@@ -14,20 +14,22 @@ public class DoseAplicada {
     private int numeroDose;
     private LocalDate dataAplicacao;
     private String lote;
-    private String unidadeSaude;
+    private String postoSaudeId;
+    private String nomePostoSaude;
     private String campanhaId;
 
     protected DoseAplicada() {
     }
 
     public DoseAplicada(String vacinaId, String nomeVacina, int numeroDose, LocalDate dataAplicacao,
-                        String lote, String unidadeSaude, String campanhaId) {
+                        String lote, String postoSaudeId, String nomePostoSaude, String campanhaId) {
         this.vacinaId = Objects.requireNonNull(vacinaId, "vacinaId e obrigatorio");
         this.nomeVacina = nomeVacina;
         this.numeroDose = numeroDose;
         this.dataAplicacao = Objects.requireNonNull(dataAplicacao, "dataAplicacao e obrigatoria");
         this.lote = lote;
-        this.unidadeSaude = unidadeSaude;
+        this.postoSaudeId = postoSaudeId;
+        this.nomePostoSaude = nomePostoSaude;
         this.campanhaId = campanhaId;
     }
 
@@ -51,8 +53,12 @@ public class DoseAplicada {
         return lote;
     }
 
-    public String getUnidadeSaude() {
-        return unidadeSaude;
+    public String getPostoSaudeId() {
+        return postoSaudeId;
+    }
+
+    public String getNomePostoSaude() {
+        return nomePostoSaude;
     }
 
     public String getCampanhaId() {

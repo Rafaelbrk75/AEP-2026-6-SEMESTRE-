@@ -12,14 +12,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import br.com.unicesumar.aep.imunizamais.TestFixtures;
 import br.com.unicesumar.aep.imunizamais.domain.Campanha;
 import br.com.unicesumar.aep.imunizamais.domain.Paciente;
+import br.com.unicesumar.aep.imunizamais.domain.PostoSaude;
 import br.com.unicesumar.aep.imunizamais.domain.SituacaoPaciente;
 import br.com.unicesumar.aep.imunizamais.domain.SituacaoVacinal;
 import br.com.unicesumar.aep.imunizamais.exception.RecursoNaoEncontradoException;
 import br.com.unicesumar.aep.imunizamais.exception.RegraNegocioException;
 import br.com.unicesumar.aep.imunizamais.service.CampanhaService;
 import br.com.unicesumar.aep.imunizamais.service.PacienteService;
+import br.com.unicesumar.aep.imunizamais.service.PostoSaudeService;
 import br.com.unicesumar.aep.imunizamais.service.VacinaService;
 import br.com.unicesumar.aep.imunizamais.service.VacinacaoService;
+import br.com.unicesumar.aep.imunizamais.web.dto.AlertaVacinacaoResponse;
 import br.com.unicesumar.aep.imunizamais.web.dto.AplicacaoDoseRequest;
 import br.com.unicesumar.aep.imunizamais.web.dto.CoberturaCampanhaResponse;
 import br.com.unicesumar.aep.imunizamais.web.dto.ContatoDTO;
@@ -27,6 +30,7 @@ import br.com.unicesumar.aep.imunizamais.web.dto.EnderecoDTO;
 import br.com.unicesumar.aep.imunizamais.web.dto.NovaCampanhaRequest;
 import br.com.unicesumar.aep.imunizamais.web.dto.NovaVacinaRequest;
 import br.com.unicesumar.aep.imunizamais.web.dto.NovoPacienteRequest;
+import br.com.unicesumar.aep.imunizamais.web.dto.NovoPostoSaudeRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
@@ -61,10 +65,13 @@ class ApiRestTest {
     private VacinaService vacinaService;
     @Mock
     private CampanhaService campanhaService;
+    @Mock
+    private PostoSaudeService postoSaudeService;
 
     private MockMvc mvcPacientes;
     private MockMvc mvcVacinas;
     private MockMvc mvcCampanhas;
+    private MockMvc mvcPostos;
     private ObjectMapper json;
 
     @BeforeEach
@@ -80,6 +87,7 @@ class ApiRestTest {
         mvcPacientes = construir(new PacienteController(pacienteService, vacinacaoService), validator);
         mvcVacinas = construir(new VacinaController(vacinaService), validator);
         mvcCampanhas = construir(new CampanhaController(campanhaService), validator);
+        mvcPostos = construir(new PostoSaudeController(postoSaudeService), validator);
     }
 
     private MockMvc construir(Object controller, LocalValidatorFactoryBean validator) {
@@ -169,7 +177,7 @@ class ApiRestTest {
         when(vacinacaoService.registrarAplicacao(eq("12345678901"), any())).thenReturn(paciente);
 
         AplicacaoDoseRequest request = new AplicacaoDoseRequest("vac-hepb", null,
-                TestFixtures.HOJE, "LOTE-A", "UBS Central");
+                TestFixtures.HOJE, "LOTE-A", "posto-1");
 
         mvcPacientes.perform(post("/api/pacientes/12345678901/doses")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -187,7 +195,7 @@ class ApiRestTest {
                         "Paciente tem 3 mes(es) e a vacina Triplice Viral exige no minimo 12 mes(es)"));
 
         AplicacaoDoseRequest request = new AplicacaoDoseRequest("vac-tv", null,
-                TestFixtures.HOJE, "LOTE-A", "UBS Central");
+                TestFixtures.HOJE, "LOTE-A", "posto-1");
 
         mvcPacientes.perform(post("/api/pacientes/12345678901/doses")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -209,6 +217,26 @@ class ApiRestTest {
                 .andExpect(jsonPath("$[0].situacao").value("ATRASADA"))
                 .andExpect(jsonPath("$[0].proximaDose").value(2))
                 .andExpect(jsonPath("$[0].dosesRecomendadas").value(3));
+    }
+
+    @Test
+    @DisplayName("GET /api/pacientes/alertas devolve pacientes com dose pendente ou atrasada")
+    void alertasVacinacao() throws Exception {
+        when(vacinacaoService.listarAlertas(null)).thenReturn(List.of(
+                new AlertaVacinacaoResponse("12345678901", "Maria Souza", "44999990001",
+                        "maria@exemplo.com", "vac-hepb", "Hepatite B", SituacaoVacinal.ATRASADA,
+                        2, TestFixtures.HOJE.minusDays(5), false)));
+
+        mvcPacientes.perform(get("/api/pacientes/alertas"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].cpf").value("12345678901"))
+                .andExpect(jsonPath("$[0].situacao").value("ATRASADA"));
+
+        when(vacinacaoService.listarAlertas(SituacaoVacinal.PENDENTE)).thenReturn(List.of());
+
+        mvcPacientes.perform(get("/api/pacientes/alertas").param("situacao", "PENDENTE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
     }
 
     @Test
@@ -299,6 +327,51 @@ class ApiRestTest {
                 .thenThrow(RecursoNaoEncontradoException.de("Campanha", "nao-existe"));
 
         mvcCampanhas.perform(get("/api/campanhas/nao-existe"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("postos de saude: cadastro, listagem, busca e desativacao")
+    void postosSaude() throws Exception {
+        PostoSaude posto = TestFixtures.postoSaude();
+        when(postoSaudeService.cadastrar(any())).thenReturn(posto);
+        when(postoSaudeService.listar()).thenReturn(List.of(posto));
+        when(postoSaudeService.listarAtivos()).thenReturn(List.of(posto));
+        when(postoSaudeService.buscarPorId("posto-1")).thenReturn(posto);
+        when(postoSaudeService.desativar("posto-1")).thenReturn(posto);
+
+        NovoPostoSaudeRequest request = new NovoPostoSaudeRequest("UBS Central", "44898887777", 150,
+                new EnderecoDTO("Av. Brasil", "500", "Centro", "Maringa", "PR", "87013-000"));
+
+        mvcPostos.perform(post("/api/postos-saude")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.nome").value("UBS Central"));
+
+        mvcPostos.perform(get("/api/postos-saude"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+
+        mvcPostos.perform(get("/api/postos-saude").param("apenasAtivos", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+
+        mvcPostos.perform(get("/api/postos-saude/posto-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.telefone").value("44898887777"));
+
+        mvcPostos.perform(patch("/api/postos-saude/posto-1/desativacao"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("posto de saude inexistente devolve 404")
+    void postoInexistente() throws Exception {
+        when(postoSaudeService.buscarPorId("nao-existe"))
+                .thenThrow(RecursoNaoEncontradoException.de("Posto de Saude", "nao-existe"));
+
+        mvcPostos.perform(get("/api/postos-saude/nao-existe"))
                 .andExpect(status().isNotFound());
     }
 }

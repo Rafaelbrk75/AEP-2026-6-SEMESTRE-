@@ -53,6 +53,14 @@ Consequências práticas:
 - O código de erro (`IDADE_MINIMA`, `INTERVALO_ENTRE_DOSES`, …) chega ao cliente HTTP,
   então o consumidor da API sabe exatamente o que corrigir.
 
+A existência e o estado do posto de saúde (`POSTO_INATIVO`) são validados à parte,
+diretamente no `VacinacaoService` — no mesmo espírito das checagens de "recurso não
+encontrado" que já existiam para vacina e campanha. Não virou uma implementação de
+`RegraAplicacaoDose` porque não depende do `ContextoAplicacao` usado pelas outras
+regras (não participa da decisão clínica de aplicar a dose, só confirma onde ela
+aconteceu); mantê-la fora da lista evita alargar a interface do contexto por conta
+de uma checagem de existência.
+
 ### 2.2 Comportamento nas entidades, não em "helpers"
 
 As entidades carregam as decisões que dizem respeito ao próprio estado:
@@ -72,9 +80,10 @@ real, não getter/setter cerimonial.
 
 `campanhas.vacinaId` e `historicoDoses[].vacinaId` guardam apenas o identificador.
 `@DBRef` foi descartado porque provoca leitura adicional a cada acesso e acopla o
-modelo à API do driver. A desnormalização do `nomeVacina` dentro da dose é
-deliberada: a carteira de vacinação é um registro histórico, e o nome vigente à época
-da aplicação deve ser preservado mesmo se o catálogo mudar.
+modelo à API do driver. A desnormalização do `nomeVacina` (e, do mesmo jeito,
+`nomePostoSaude`) dentro da dose é deliberada: a carteira de vacinação é um registro
+histórico, e o nome vigente à época da aplicação deve ser preservado mesmo se o
+catálogo mudar ou o posto for renomeado/desativado depois.
 
 ### 2.4 Relógio injetável
 
@@ -100,8 +109,8 @@ campos inválidos. O `GlobalExceptionHandler` é o único ponto que conhece cód
 |---|---|---|
 | Unidade — domínio | Entidades, objetos de valor, enum | JUnit 5 puro |
 | Unidade — regras | As 5 implementações de `RegraAplicacaoDose` | JUnit 5 + `Clock` fixo |
-| Unidade — serviços | `VacinacaoService`, `PacienteService`, `VacinaService`, `CampanhaService` | JUnit 5 + Mockito (repositórios mockados) |
-| Integração da camada web | Os 3 controllers + `GlobalExceptionHandler` | MockMvc **standalone** com serviços mockados |
+| Unidade — serviços | `VacinacaoService`, `PacienteService`, `VacinaService`, `CampanhaService`, `PostoSaudeService` | JUnit 5 + Mockito (repositórios mockados) |
+| Integração da camada web | Os 4 controllers + `GlobalExceptionHandler` | MockMvc **standalone** com serviços mockados |
 
 **Nenhum teste exige MongoDB em execução.** O MockMvc standalone não sobe o contexto
 do Spring: monta o controller diretamente com os conversores de mensagem e o validador,

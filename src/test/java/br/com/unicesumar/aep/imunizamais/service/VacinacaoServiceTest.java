@@ -1,6 +1,7 @@
 package br.com.unicesumar.aep.imunizamais.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -14,6 +15,7 @@ import br.com.unicesumar.aep.imunizamais.TestFixtures;
 import br.com.unicesumar.aep.imunizamais.domain.Campanha;
 import br.com.unicesumar.aep.imunizamais.domain.DoseAplicada;
 import br.com.unicesumar.aep.imunizamais.domain.Paciente;
+import br.com.unicesumar.aep.imunizamais.domain.PostoSaude;
 import br.com.unicesumar.aep.imunizamais.domain.SituacaoPaciente;
 import br.com.unicesumar.aep.imunizamais.domain.SituacaoVacinal;
 import br.com.unicesumar.aep.imunizamais.domain.regra.CampanhaVigenteRegra;
@@ -26,7 +28,9 @@ import br.com.unicesumar.aep.imunizamais.exception.RecursoNaoEncontradoException
 import br.com.unicesumar.aep.imunizamais.exception.RegraNegocioException;
 import br.com.unicesumar.aep.imunizamais.repository.CampanhaRepository;
 import br.com.unicesumar.aep.imunizamais.repository.PacienteRepository;
+import br.com.unicesumar.aep.imunizamais.repository.PostoSaudeRepository;
 import br.com.unicesumar.aep.imunizamais.repository.VacinaRepository;
+import br.com.unicesumar.aep.imunizamais.web.dto.AlertaVacinacaoResponse;
 import br.com.unicesumar.aep.imunizamais.web.dto.AplicacaoDoseRequest;
 import java.util.List;
 import java.util.Optional;
@@ -50,6 +54,8 @@ class VacinacaoServiceTest {
     private VacinaRepository vacinaRepository;
     @Mock
     private CampanhaRepository campanhaRepository;
+    @Mock
+    private PostoSaudeRepository postoSaudeRepository;
 
     private VacinacaoService servico;
 
@@ -63,15 +69,16 @@ class VacinacaoServiceTest {
     @BeforeEach
     void setUp() {
         servico = new VacinacaoService(pacienteRepository, vacinaRepository, campanhaRepository,
-                regras, TestFixtures.relogioFixo());
+                postoSaudeRepository, regras, TestFixtures.relogioFixo());
         when(pacienteRepository.save(any(Paciente.class)))
                 .thenAnswer(invocacao -> invocacao.getArgument(0));
         when(campanhaRepository.save(any(Campanha.class)))
                 .thenAnswer(invocacao -> invocacao.getArgument(0));
+        when(postoSaudeRepository.findById("posto-1")).thenReturn(Optional.of(TestFixtures.postoSaude()));
     }
 
     private AplicacaoDoseRequest requisicao(String vacinaId, String campanhaId) {
-        return new AplicacaoDoseRequest(vacinaId, campanhaId, TestFixtures.HOJE, "LOTE-A", "UBS Central");
+        return new AplicacaoDoseRequest(vacinaId, campanhaId, TestFixtures.HOJE, "LOTE-A", "posto-1");
     }
 
     @Test
@@ -88,7 +95,8 @@ class VacinacaoServiceTest {
         assertEquals(1, dose.getNumeroDose());
         assertEquals("Hepatite B", dose.getNomeVacina());
         assertEquals("LOTE-A", dose.getLote());
-        assertEquals("UBS Central", dose.getUnidadeSaude());
+        assertEquals("posto-1", dose.getPostoSaudeId());
+        assertEquals("UBS Central", dose.getNomePostoSaude());
         assertNull(dose.getCampanhaId());
         verify(pacienteRepository).save(paciente);
         verify(campanhaRepository, never()).save(any(Campanha.class));
@@ -228,6 +236,69 @@ class VacinacaoServiceTest {
     @DisplayName("construtor de producao usa o relogio do sistema")
     void construtorDeProducao() {
         assertNotNull(new VacinacaoService(pacienteRepository, vacinaRepository,
-                campanhaRepository, regras));
+                campanhaRepository, postoSaudeRepository, regras));
+    }
+
+    @Test
+    @DisplayName("falha quando o posto de saude informado nao existe")
+    void postoInexistente() {
+        when(pacienteRepository.findByCpf("12345678901")).thenReturn(Optional.of(TestFixtures.adulta()));
+        when(vacinaRepository.findById("vac-hepb")).thenReturn(Optional.of(TestFixtures.hepatiteB()));
+        when(postoSaudeRepository.findById("posto-x")).thenReturn(Optional.empty());
+
+        AplicacaoDoseRequest request = new AplicacaoDoseRequest("vac-hepb", null,
+                TestFixtures.HOJE, "LOTE-A", "posto-x");
+
+        assertThrows(RecursoNaoEncontradoException.class,
+                () -> servico.registrarAplicacao("12345678901", request));
+    }
+
+    @Test
+    @DisplayName("falha quando o posto de saude esta inativo")
+    void postoInativo() {
+        PostoSaude inativo = TestFixtures.postoSaude();
+        inativo.desativar();
+        when(pacienteRepository.findByCpf("12345678901")).thenReturn(Optional.of(TestFixtures.adulta()));
+        when(vacinaRepository.findById("vac-hepb")).thenReturn(Optional.of(TestFixtures.hepatiteB()));
+        when(postoSaudeRepository.findById("posto-1")).thenReturn(Optional.of(inativo));
+
+        RegraNegocioException ex = assertThrows(RegraNegocioException.class,
+                () -> servico.registrarAplicacao("12345678901", requisicao("vac-hepb", null)));
+        assertEquals("POSTO_INATIVO", ex.getRegra());
+    }
+
+    @Test
+    @DisplayName("lista alertas de pacientes pendentes, atrasados e com dose proxima")
+    void listarAlertas() {
+        Paciente paciente = TestFixtures.adulta();
+        // Hepatite B: 1 de 3 doses, aplicada ha 200 dias (intervalo de 30) -> ATRASADA
+        paciente.registrarDose(TestFixtures.dose("vac-hepb", 1, TestFixtures.HOJE.minusDays(200)));
+        when(pacienteRepository.findAll()).thenReturn(List.of(paciente));
+        when(vacinaRepository.findAll()).thenReturn(List.of(TestFixtures.hepatiteB()));
+
+        List<AlertaVacinacaoResponse> alertas = servico.listarAlertas(null);
+
+        assertEquals(1, alertas.size());
+        assertEquals(SituacaoVacinal.ATRASADA, alertas.get(0).situacao());
+        assertEquals("12345678901", alertas.get(0).cpf());
+        assertFalse(alertas.get(0).proximaDoseEmBreve());
+    }
+
+    @Test
+    @DisplayName("lista alertas filtrando por situacao e sinaliza proxima dose em breve")
+    void listarAlertasComFiltroEProximaDoseEmBreve() {
+        Paciente paciente = TestFixtures.adulta();
+        // Hepatite B: 1 de 3 doses, aplicada ha 25 dias (intervalo de 30) -> EM_DIA,
+        // mas a proxima dose vence em 5 dias, dentro da janela de alerta preventivo.
+        paciente.registrarDose(TestFixtures.dose("vac-hepb", 1, TestFixtures.HOJE.minusDays(25)));
+        when(pacienteRepository.findAll()).thenReturn(List.of(paciente));
+        when(vacinaRepository.findAll()).thenReturn(List.of(TestFixtures.hepatiteB()));
+
+        List<AlertaVacinacaoResponse> todos = servico.listarAlertas(null);
+        assertEquals(1, todos.size());
+        assertEquals(SituacaoVacinal.EM_DIA, todos.get(0).situacao());
+        assertTrue(todos.get(0).proximaDoseEmBreve());
+
+        assertTrue(servico.listarAlertas(SituacaoVacinal.ATRASADA).isEmpty());
     }
 }

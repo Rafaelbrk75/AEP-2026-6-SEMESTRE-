@@ -105,13 +105,14 @@ class PacienteTest {
     @DisplayName("dose guarda os dados de rastreio da aplicacao")
     void dadosDaDose() {
         DoseAplicada dose = new DoseAplicada("vac-flu", "Influenza", 1,
-                LocalDate.of(2026, 4, 2), "L-99", "UBS Zona 7", "camp-1");
+                LocalDate.of(2026, 4, 2), "L-99", "posto-7", "UBS Zona 7", "camp-1");
 
         assertEquals("vac-flu", dose.getVacinaId());
         assertEquals("Influenza", dose.getNomeVacina());
         assertEquals(1, dose.getNumeroDose());
         assertEquals("L-99", dose.getLote());
-        assertEquals("UBS Zona 7", dose.getUnidadeSaude());
+        assertEquals("posto-7", dose.getPostoSaudeId());
+        assertEquals("UBS Zona 7", dose.getNomePostoSaude());
         assertEquals("camp-1", dose.getCampanhaId());
         assertTrue(dose.referenteA("vac-flu"));
         assertFalse(dose.referenteA("vac-hepb"));
@@ -123,8 +124,8 @@ class PacienteTest {
     @DisplayName("dose exige vacina e data")
     void doseExigeCamposObrigatorios() {
         assertThrows(NullPointerException.class,
-                () -> new DoseAplicada(null, "X", 1, TestFixtures.HOJE, "L", "UBS", null));
+                () -> new DoseAplicada(null, "X", 1, TestFixtures.HOJE, "L", "posto-1", "UBS", null));
         assertThrows(NullPointerException.class,
-                () -> new DoseAplicada("vac", "X", 1, null, "L", "UBS", null));
+                () -> new DoseAplicada("vac", "X", 1, null, "L", "posto-1", "UBS", null));
     }
 }

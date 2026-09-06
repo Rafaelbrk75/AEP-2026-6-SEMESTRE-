@@ -2,8 +2,10 @@ package br.com.unicesumar.aep.imunizamais.web;
 
 import br.com.unicesumar.aep.imunizamais.domain.Paciente;
 import br.com.unicesumar.aep.imunizamais.domain.SituacaoPaciente;
+import br.com.unicesumar.aep.imunizamais.domain.SituacaoVacinal;
 import br.com.unicesumar.aep.imunizamais.service.PacienteService;
 import br.com.unicesumar.aep.imunizamais.service.VacinacaoService;
+import br.com.unicesumar.aep.imunizamais.web.dto.AlertaVacinacaoResponse;
 import br.com.unicesumar.aep.imunizamais.web.dto.AplicacaoDoseRequest;
 import br.com.unicesumar.aep.imunizamais.web.dto.NovoPacienteRequest;
 import jakarta.validation.Valid;
@@ -59,5 +61,16 @@ public class PacienteController {
     @GetMapping("/{cpf}/situacao")
     public ResponseEntity<List<SituacaoPaciente>> situacao(@PathVariable String cpf) {
         return ResponseEntity.ok(vacinacaoService.consultarSituacao(cpf));
+    }
+
+    /**
+     * Varre a base e devolve pacientes com dose pendente, atrasada, ou cuja proxima
+     * dose esta prevista para os proximos dias (para um posto de saude avisar antes
+     * que a vacinacao atrase). Filtra por situacao quando o parametro e informado.
+     */
+    @GetMapping("/alertas")
+    public ResponseEntity<List<AlertaVacinacaoResponse>> alertas(
+            @RequestParam(required = false) SituacaoVacinal situacao) {
+        return ResponseEntity.ok(vacinacaoService.listarAlertas(situacao));
     }
 }

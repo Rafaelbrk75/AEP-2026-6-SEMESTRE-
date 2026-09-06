@@ -3,21 +3,26 @@ package br.com.unicesumar.aep.imunizamais.service;
 import br.com.unicesumar.aep.imunizamais.domain.Campanha;
 import br.com.unicesumar.aep.imunizamais.domain.DoseAplicada;
 import br.com.unicesumar.aep.imunizamais.domain.Paciente;
+import br.com.unicesumar.aep.imunizamais.domain.PostoSaude;
 import br.com.unicesumar.aep.imunizamais.domain.SituacaoPaciente;
 import br.com.unicesumar.aep.imunizamais.domain.SituacaoVacinal;
 import br.com.unicesumar.aep.imunizamais.domain.Vacina;
 import br.com.unicesumar.aep.imunizamais.domain.regra.ContextoAplicacao;
 import br.com.unicesumar.aep.imunizamais.domain.regra.RegraAplicacaoDose;
 import br.com.unicesumar.aep.imunizamais.exception.RecursoNaoEncontradoException;
+import br.com.unicesumar.aep.imunizamais.exception.RegraNegocioException;
 import br.com.unicesumar.aep.imunizamais.repository.CampanhaRepository;
 import br.com.unicesumar.aep.imunizamais.repository.PacienteRepository;
+import br.com.unicesumar.aep.imunizamais.repository.PostoSaudeRepository;
 import br.com.unicesumar.aep.imunizamais.repository.VacinaRepository;
+import br.com.unicesumar.aep.imunizamais.web.dto.AlertaVacinacaoResponse;
 import br.com.unicesumar.aep.imunizamais.web.dto.AplicacaoDoseRequest;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -27,27 +32,36 @@ import org.springframework.stereotype.Service;
 @Service
 public class VacinacaoService {
 
+    /** Janela, em dias, usada para avisar sobre uma proxima dose antes que ela atrase. */
+    private static final int DIAS_ANTECEDENCIA_ALERTA = 7;
+
     private final PacienteRepository pacienteRepository;
     private final VacinaRepository vacinaRepository;
     private final CampanhaRepository campanhaRepository;
+    private final PostoSaudeRepository postoSaudeRepository;
     private final List<RegraAplicacaoDose> regras;
     private final Clock clock;
 
+    @Autowired
     public VacinacaoService(PacienteRepository pacienteRepository,
                             VacinaRepository vacinaRepository,
                             CampanhaRepository campanhaRepository,
+                            PostoSaudeRepository postoSaudeRepository,
                             List<RegraAplicacaoDose> regras) {
-        this(pacienteRepository, vacinaRepository, campanhaRepository, regras, Clock.systemDefaultZone());
+        this(pacienteRepository, vacinaRepository, campanhaRepository, postoSaudeRepository, regras,
+                Clock.systemDefaultZone());
     }
 
     public VacinacaoService(PacienteRepository pacienteRepository,
                             VacinaRepository vacinaRepository,
                             CampanhaRepository campanhaRepository,
+                            PostoSaudeRepository postoSaudeRepository,
                             List<RegraAplicacaoDose> regras,
                             Clock clock) {
         this.pacienteRepository = pacienteRepository;
         this.vacinaRepository = vacinaRepository;
         this.campanhaRepository = campanhaRepository;
+        this.postoSaudeRepository = postoSaudeRepository;
         this.regras = regras;
         this.clock = clock;
     }
@@ -70,6 +84,13 @@ public class VacinacaoService {
                     .orElseThrow(() -> RecursoNaoEncontradoException.de("Campanha", request.campanhaId()));
         }
 
+        PostoSaude posto = postoSaudeRepository.findById(request.postoSaudeId())
+                .orElseThrow(() -> RecursoNaoEncontradoException.de("Posto de Saude", request.postoSaudeId()));
+        if (!posto.isAtivo()) {
+            throw new RegraNegocioException("POSTO_INATIVO",
+                    "O posto de saude " + posto.getNome() + " esta inativo");
+        }
+
         int numeroDose = paciente.proximoNumeroDose(vacina.getId());
         ContextoAplicacao contexto = new ContextoAplicacao(paciente, vacina, campanha,
                 request.dataAplicacao(), numeroDose);
@@ -84,7 +105,8 @@ public class VacinacaoService {
                 numeroDose,
                 request.dataAplicacao(),
                 request.lote(),
-                request.unidadeSaude(),
+                posto.getId(),
+                posto.getNome(),
                 campanha == null ? null : campanha.getId());
 
         paciente.registrarDose(dose);
@@ -111,6 +133,49 @@ public class VacinacaoService {
             situacoes.add(avaliar(paciente, vacina, hoje));
         }
         return situacoes;
+    }
+
+    /**
+     * Varre todos os pacientes e devolve, para cada vacina de cada paciente, um alerta
+     * quando a dose esta pendente, atrasada, ou quando a proxima dose esta prevista para
+     * os proximos {@value #DIAS_ANTECEDENCIA_ALERTA} dias (aviso preventivo, evitando que
+     * o paciente chegue a ficar atrasado). Use o parametro de filtro para restringir a
+     * apenas uma situacao (por exemplo, so ATRASADA).
+     */
+    public List<AlertaVacinacaoResponse> listarAlertas(SituacaoVacinal filtro) {
+        LocalDate hoje = LocalDate.now(clock);
+        List<Vacina> vacinas = vacinaRepository.findAll();
+        List<AlertaVacinacaoResponse> alertas = new ArrayList<>();
+
+        for (Paciente paciente : pacienteRepository.findAll()) {
+            for (Vacina vacina : vacinas) {
+                SituacaoPaciente situacao = avaliar(paciente, vacina, hoje);
+
+                boolean proximaDoseEmBreve = situacao.getSituacao() == SituacaoVacinal.EM_DIA
+                        && situacao.getDataPrevistaProximaDose() != null
+                        && !situacao.getDataPrevistaProximaDose().isAfter(hoje.plusDays(DIAS_ANTECEDENCIA_ALERTA));
+
+                if (!situacao.exigeAcao() && !proximaDoseEmBreve) {
+                    continue;
+                }
+                if (filtro != null && situacao.getSituacao() != filtro) {
+                    continue;
+                }
+
+                alertas.add(new AlertaVacinacaoResponse(
+                        paciente.getCpf(),
+                        paciente.getNome(),
+                        paciente.getContato().getTelefone(),
+                        paciente.getContato().getEmail(),
+                        situacao.getVacinaId(),
+                        situacao.getNomeVacina(),
+                        situacao.getSituacao(),
+                        situacao.getProximaDose(),
+                        situacao.getDataPrevistaProximaDose(),
+                        proximaDoseEmBreve));
+            }
+        }
+        return alertas;
     }
 
     private SituacaoPaciente avaliar(Paciente paciente, Vacina vacina, LocalDate hoje) {
