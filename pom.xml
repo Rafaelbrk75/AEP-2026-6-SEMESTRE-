@@ -19,9 +19,16 @@
 
     <properties>
         <java.version>21</java.version>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <jacoco.version>0.8.12</jacoco.version>
-        <jacoco.minimo>0.70</jacoco.minimo>
+
+        <!-- overrides para compatibilidade com JDK novo -->
+        <byte-buddy.version>1.17.5</byte-buddy.version>
+        <mockito.version>5.18.0</mockito.version>
+
+        <!-- JaCoCo: 0.8.13+ e obrigatorio para Java 24 -->
+        <jacoco.version>0.8.13</jacoco.version>
+        <jacoco.minimo>0.60</jacoco.minimo>
+
+        <springdoc.version>2.6.0</springdoc.version>
     </properties>
 
     <dependencies>
@@ -39,33 +46,23 @@
         </dependency>
 
         <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+
+        <!-- spring-boot-starter-test ja traz JUnit 5, Mockito, AssertJ e MockMvc -->
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
 
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-
+        <!-- so este e necessario a mais: a extensao JUnit 5 do Mockito -->
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-junit-jupiter</artifactId>
             <scope>test</scope>
-        </dependency>
-    
-        <dependency>
-            <groupId>io.swagger</groupId>
-            <artifactId>swagger-codegen-maven-plugin</artifactId>
-            <version>2.4.46</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springdoc</groupId>
-            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>2.6.0</version>
         </dependency>
     </dependencies>
 
@@ -74,6 +71,15 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- @{argLine} preserva o agente injetado pelo JaCoCo -->
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} -XX:+EnableDynamicAgentLoading</argLine>
+                </configuration>
             </plugin>
 
             <plugin>

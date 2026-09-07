@@ -14,9 +14,6 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 
-/**
- * Fabricas de objetos usadas pelos testes. Datas sao fixas para tornar os testes deterministicos.
- */
 public final class TestFixtures {
 
     public static final LocalDate HOJE = LocalDate.of(2026, 9, 5);
