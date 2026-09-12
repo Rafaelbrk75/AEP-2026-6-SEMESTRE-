@@ -276,6 +276,6 @@ A trava está declarada no `pom.xml` (execução `check-cobertura-minima`): se `
 
 | RA | Nome |
 |---|---|
-| _preencher_ | _preencher_ |
-| _preencher_ | _preencher_ |
-| _preencher_ | _preencher_ |
+| 24132614-2 | Rafael Rodrigues Oliveira Santos |
+| 24050757-2 | Pedro Henrique Gameleira Cavalini |
+| 24055172-2 | Murilo Pagotto Specian |
